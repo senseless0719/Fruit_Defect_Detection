@@ -1,0 +1,36 @@
+# ===== Datasets (large, re-downloadable) =====
+_raw_datasets/
+dataset/
+dataset_fruits/
+test_dataset/
+
+# ===== Cached features (re-extractable) =====
+features_apple.npz
+features_fruits.npz
+
+# ===== Trained models (re-trainable) =====
+models/*.pkl
+models/plots/
+
+# ===== Python cache =====
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# ===== Result images =====
+*_result.jpg
+*_results/
+
+# ===== OS / IDE =====
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ===== Temp files =====
+_reextract_fruits.py
