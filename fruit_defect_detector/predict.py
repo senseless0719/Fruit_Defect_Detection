@@ -101,29 +101,71 @@ def predict_image(
 
         # Get apple probability directly
         apple_idx = None
+        other_idx = None
         for i, name in enumerate(p0.label_names):
             if str(name).lower() == 'apple':
                 apple_idx = i
-                break
+            if str(name).lower() == 'other':
+                other_idx = i
         apple_prob = float(proba0[apple_idx]) * 100 if apple_idx is not None else 0
+        other_prob = float(proba0[other_idx]) * 100 if other_idx is not None else 0
 
-        if detected_type.lower() == 'other' and fruit_confidence > 80.0:
-            # High-confidence "not a fruit"
+        # Get max fruit probability (excluding 'other')
+        fruit_probs = [float(proba0[i]) * 100 for i, n in enumerate(p0.label_names)
+                       if str(n).lower() != 'other']
+        max_fruit_prob = max(fruit_probs) if fruit_probs else 0
+
+        # --- "Not a Fruit" detection (multi-signal) ---
+        not_a_fruit = False
+
+        # Signal 1: "other" is the top prediction
+        if detected_type.lower() == 'other':
+            not_a_fruit = True
+
+        # Signal 2: No fruit class is confident (< 20% for any fruit)
+        if max_fruit_prob < 20.0:
+            not_a_fruit = True
+
+        # Signal 3: Use fruit mask — if fruit area < 5% of image, not a fruit
+        try:
+            test_mask = extract_fruit_mask(original)
+            fruit_area_ratio = np.sum(test_mask > 0) / test_mask.size
+            if fruit_area_ratio < 0.05:
+                not_a_fruit = True
+        except Exception:
+            pass
+
+        # Signal 4: Color check — real fruits have warm, saturated colors
+        # Dark/desaturated images (anime wallpapers, etc.) will have low saturation
+        try:
+            hsv = cv2.cvtColor(original, cv2.COLOR_BGR2HSV)
+            avg_saturation = np.mean(hsv[:, :, 1])
+            avg_value = np.mean(hsv[:, :, 2])
+            if avg_saturation < 25 and avg_value < 80:
+                not_a_fruit = True  # Very dark/desaturated image
+            if avg_saturation < 15:
+                not_a_fruit = True  # Extremely desaturated (grayscale-like)
+            if avg_value < 60:
+                not_a_fruit = True  # Too dark to be a fruit photo
+        except Exception:
+            pass
+
+        if not_a_fruit:
             return {
                 'is_fruit': False, 'fruit_type': 'Unknown',
-                'fruit_confidence': fruit_confidence,
+                'fruit_confidence': other_prob,
                 'status': 'Not a Fruit',
                 'defect_found': False, 'defect_type': 'N/A',
-                'defect_severity': 'N/A', 'confidence': fruit_confidence,
+                'defect_severity': 'N/A', 'confidence': other_prob,
                 'defect_ratio': 0.0, 'phase': 'Phase0',
                 'elapsed_ms': (time.perf_counter() - t_start) * 1000,
             }
 
         if detected_type.lower() == 'apple':
             fruit_type = 'Apple'
-        elif fruit_confidence > 80.0 and apple_prob < 10.0:
-            # Very confident it's a different fruit AND apple prob is very low
-            # -> skip defect analysis (defect models only trained on apples)
+        elif fruit_confidence > 95.0 and apple_prob < 5.0:
+            # VERY confident it's a different fruit AND apple prob is negligible
+            # -> safe to skip defect analysis
             fruit_type = detected_type.capitalize()
             return {
                 'is_fruit': True, 'fruit_type': fruit_type,
@@ -135,7 +177,7 @@ def predict_image(
                 'elapsed_ms': (time.perf_counter() - t_start) * 1000,
             }
         else:
-            # Uncertain — could be apple. Always run defect analysis.
+            # Uncertain — could be apple. Run defect analysis.
             fruit_type = 'Apple'
 
     # ---- Segmentation ----
