@@ -298,7 +298,7 @@ def visualise_result(
     save_path: Optional[str] = None,
     show: bool = False,
 ) -> np.ndarray:
-    """Draw defect overlay with highlighted damage regions and info banner."""
+    """Draw clean defect overlay with highlighted damage regions and info panel."""
     img = cv2.imread(image_path)
     if img is None:
         return None
@@ -309,68 +309,81 @@ def visualise_result(
     defect_type = result.get('defect_type', '?')
     conf = result.get('confidence', 0.0)
     ratio = result.get('defect_ratio', 0.0)
+    severity = result.get('defect_severity', 'N/A')
 
     h, w = img.shape[:2]
     vis = img.copy()
 
-    # === DEFECT HIGHLIGHTING ===
+    # === DEFECT HIGHLIGHTING (clean, no text) ===
     if is_fruit and fruit_type.lower() == 'apple' and defect_found:
         defect_mask = segment_defects(img)
         color = DEFECT_COLORS.get(defect_type, (0, 130, 255))
 
-        # 1. Semi-transparent colored overlay on defect areas
+        # 1. Soft colored overlay on defect areas
         overlay = vis.copy()
         overlay[defect_mask > 0] = color
-        vis = cv2.addWeighted(overlay, 0.45, vis, 0.55, 0)
+        vis = cv2.addWeighted(overlay, 0.35, vis, 0.65, 0)
 
-        # 2. Draw contours around defect regions
+        # 2. Draw contours with glow effect
         contours, _ = cv2.findContours(defect_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-        # Filter small contours (noise)
         min_area = max(50, h * w * 0.001)
         large_contours = [c for c in contours if cv2.contourArea(c) > min_area]
 
+        # Outer glow (thicker, semi-transparent)
+        glow = vis.copy()
+        cv2.drawContours(glow, large_contours, -1, color, 4)
+        vis = cv2.addWeighted(glow, 0.6, vis, 0.4, 0)
+
+        # Inner sharp contour
         cv2.drawContours(vis, large_contours, -1, color, 2)
 
-        # 3. Draw bounding boxes around major defect clusters
-        for c in large_contours:
-            x, y_pos, bw, bh = cv2.boundingRect(c)
-            if bw * bh > min_area * 3:  # Only for significant regions
-                cv2.rectangle(vis, (x, y_pos), (x + bw, y_pos + bh), color, 2)
-                label = f"{defect_type} {conf:.0f}%"
-                # Label background
-                (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
-                cv2.rectangle(vis, (x, y_pos - th - 8), (x + tw + 6, y_pos), color, -1)
-                cv2.putText(vis, label, (x + 3, y_pos - 5),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+    # === BOTTOM INFO PANEL ===
+    panel_h = 70
+    panel = np.zeros((panel_h, w, 3), dtype=np.uint8)
+    panel[:] = (25, 25, 25)
 
-    # === TOP BANNER ===
-    banner_h = 52
-    banner = np.zeros((banner_h, w, 3), dtype=np.uint8)
-    banner[:] = (30, 30, 30)
+    # Status indicator bar (thin colored line at panel top)
+    if not is_fruit:
+        bar_color = (0, 100, 200)  # Orange for unknown
+    elif defect_found:
+        bar_color = DEFECT_COLORS.get(defect_type, (0, 0, 255))
+    else:
+        bar_color = (0, 200, 80)  # Green for healthy
+    panel[0:3, :] = bar_color
+
+    # Text layout
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    font_s = cv2.FONT_HERSHEY_PLAIN
 
     if not is_fruit:
-        text = f"NOT A FRUIT  ({conf:.0f}%)"
-        text_color = (0, 200, 255)
+        cv2.putText(panel, "NOT A FRUIT", (15, 30), font, 0.7, (0, 150, 255), 2)
+        cv2.putText(panel, f"This image does not contain a recognizable fruit",
+                    (15, 55), font_s, 1.0, (140, 140, 140), 1)
     elif not defect_found:
-        text = f"Apple: HEALTHY ({conf:.0f}%)"
-        text_color = (0, 255, 100)
+        # Healthy
+        cv2.putText(panel, f"{fruit_type}", (15, 30), font, 0.7, (255, 255, 255), 2)
+
+        # Status badge
+        badge_x = 15 + len(fruit_type) * 18
+        cv2.rectangle(panel, (badge_x, 12), (badge_x + 80, 36), (0, 180, 60), -1)
+        cv2.putText(panel, "HEALTHY", (badge_x + 5, 31), font_s, 1.1, (255, 255, 255), 1)
+
+        cv2.putText(panel, f"Confidence: {conf:.0f}%", (15, 55), font_s, 1.0, (140, 140, 140), 1)
     else:
-        text = f"DEFECT: {defect_type}  |  Conf: {conf:.0f}%  |  Damage: {ratio*100:.0f}%"
-        text_color = DEFECT_COLORS.get(defect_type, (0, 130, 255))
+        # Defective
+        cv2.putText(panel, f"{fruit_type}", (15, 30), font, 0.7, (255, 255, 255), 2)
 
-    cv2.putText(banner, text, (12, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.7, text_color, 2)
+        # Defect badge
+        badge_x = 15 + len(fruit_type) * 18
+        cv2.rectangle(panel, (badge_x, 12), (badge_x + len(defect_type) * 12 + 16, 36),
+                      bar_color, -1)
+        cv2.putText(panel, defect_type, (badge_x + 8, 31), font_s, 1.1, (255, 255, 255), 1)
 
-    # === BOTTOM SEVERITY BAR ===
-    bar_h = 8
-    severity_bar = np.zeros((bar_h, w, 3), dtype=np.uint8)
-    if defect_found:
-        fill_w = int(w * min(ratio * 2, 1.0))  # Scale for visibility
-        severity_bar[:, :fill_w] = DEFECT_COLORS.get(defect_type, (0, 0, 255))
-    else:
-        severity_bar[:, :] = (0, 180, 0)  # Green for healthy
+        # Details line
+        details = f"Confidence: {conf:.0f}%   |   Severity: {severity}   |   Damage: {ratio*100:.1f}%"
+        cv2.putText(panel, details, (15, 55), font_s, 1.0, (160, 160, 160), 1)
 
-    vis = np.vstack([banner, vis, severity_bar])
+    vis = np.vstack([vis, panel])
 
     if save_path:
         os.makedirs(os.path.dirname(save_path) or '.', exist_ok=True)
