@@ -346,6 +346,14 @@ def visualise_result(
         # Inner sharp contour
         cv2.drawContours(vis, large_contours, -1, color, 2)
 
+        # 3. Clean bounding boxes around significant defect clusters (no text)
+        for c in large_contours:
+            x, y_pos, bw, bh = cv2.boundingRect(c)
+            if bw * bh > min_area * 2:
+                # Slightly brighter color for the box
+                box_color = tuple(min(c + 40, 255) for c in color)
+                cv2.rectangle(vis, (x - 2, y_pos - 2), (x + bw + 2, y_pos + bh + 2), box_color, 2)
+
     # === BOTTOM INFO PANEL ===
     panel_h = 70
     panel = np.zeros((panel_h, w, 3), dtype=np.uint8)
