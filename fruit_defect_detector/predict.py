@@ -35,16 +35,24 @@ DEFECT_COLORS = {
     'Scab':        (0, 180, 255),    # Orange
     'Black Rot':   (0, 0, 255),      # Red
     'Cedar Rust':  (0, 255, 255),    # Yellow
-    'Full Damage': (128, 0, 255),    # Purple
+    'Damaged':     (128, 0, 255),    # Purple
     'Unknown':     (0, 130, 255),    # Dark orange
 }
 
-SEVERITY_MAP = {
-    'Scab': 'Moderate',
-    'Black Rot': 'Severe',
-    'Cedar Rust': 'Moderate',
-    'Full Damage': 'Severe',
+# Remap internal model labels to display-friendly names
+DEFECT_LABEL_MAP = {
+    'Full Damage': 'Damaged',
 }
+
+
+def get_severity(defect_ratio: float) -> str:
+    """Determine severity dynamically based on actual damage area."""
+    if defect_ratio < 0.05:
+        return 'Minor'
+    elif defect_ratio < 0.15:
+        return 'Moderate'
+    else:
+        return 'Severe'
 
 
 def load_models(models_dir: str):
@@ -218,10 +226,11 @@ def predict_image(
     if p2 is not None:
         proba2 = p2.predict_proba(features)[0]
         pred2 = int(np.argmax(proba2))
-        defect_type = str(p2.label_names[pred2])
+        raw_label = str(p2.label_names[pred2])
+        defect_type = DEFECT_LABEL_MAP.get(raw_label, raw_label)
         defect_conf = float(proba2[pred2]) * 100
 
-    severity = SEVERITY_MAP.get(defect_type, 'Unknown')
+    severity = get_severity(defect_ratio)
 
     return {
         'is_fruit': True, 'fruit_type': 'Apple',
