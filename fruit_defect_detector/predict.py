@@ -171,22 +171,9 @@ def predict_image(
 
         if detected_type.lower() == 'apple':
             fruit_type = 'Apple'
-        elif fruit_confidence > 95.0 and apple_prob < 5.0:
-            # VERY confident it's a different fruit AND apple prob is negligible
-            # -> safe to skip defect analysis
-            fruit_type = detected_type.capitalize()
-            return {
-                'is_fruit': True, 'fruit_type': fruit_type,
-                'fruit_confidence': fruit_confidence,
-                'status': f'{fruit_type} (No defect analysis)',
-                'defect_found': False, 'defect_type': 'N/A',
-                'defect_severity': 'N/A', 'confidence': fruit_confidence,
-                'defect_ratio': 0.0, 'phase': 'Phase0',
-                'elapsed_ms': (time.perf_counter() - t_start) * 1000,
-            }
         else:
-            # Uncertain — could be apple. Run defect analysis.
-            fruit_type = 'Apple'
+            # Keep the detected fruit type, still run defect analysis
+            fruit_type = detected_type.capitalize()
 
     # ---- Segmentation ----
     defect_mask = segment_defects(original, threshold=threshold)
@@ -210,7 +197,7 @@ def predict_image(
 
     if pred1 == 0:  # Healthy
         return {
-            'is_fruit': True, 'fruit_type': 'Apple',
+            'is_fruit': True, 'fruit_type': fruit_type,
             'fruit_confidence': fruit_confidence,
             'status': 'Healthy',
             'defect_found': False, 'defect_type': 'None',
@@ -233,7 +220,7 @@ def predict_image(
     severity = get_severity(defect_ratio)
 
     return {
-        'is_fruit': True, 'fruit_type': 'Apple',
+        'is_fruit': True, 'fruit_type': fruit_type,
         'fruit_confidence': fruit_confidence,
         'status': 'Defective',
         'defect_found': True, 'defect_type': defect_type,
@@ -324,7 +311,7 @@ def visualise_result(
     vis = img.copy()
 
     # === DEFECT HIGHLIGHTING (clean, no text) ===
-    if is_fruit and fruit_type.lower() == 'apple' and defect_found:
+    if is_fruit and defect_found:
         defect_mask = segment_defects(img)
         color = DEFECT_COLORS.get(defect_type, (0, 130, 255))
 
